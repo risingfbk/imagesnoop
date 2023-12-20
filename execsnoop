@@ -142,8 +142,7 @@ static int submit_arg(struct pt_regs *ctx, void *ptr, struct data_t *data)
 
 int syscall__execve(struct pt_regs *ctx,
     const char __user *filename,
-    const char __user *const __user *__argv,
-    const char __user *const __user *__envp)
+    const char __user *const __user *__argv)
 {
 
     u32 uid = bpf_get_current_uid_gid() & 0xffffffff;
@@ -240,7 +239,7 @@ if args.ebpf:
 
 # initialize BPF
 b = BPF(text=bpf_text)
-execve_fnname = b.get_syscall_fnname("execve")
+execve_fnname = b.get_syscall_fnname("mkdir")
 b.attach_kprobe(event=execve_fnname, fn_name="syscall__execve")
 b.attach_kretprobe(event=execve_fnname, fn_name="do_ret_sys_execve")
 
