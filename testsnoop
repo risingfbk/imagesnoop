@@ -4,13 +4,16 @@
 
 from bcc import BPF
 from bcc.utils import printb
+from collections import defaultdict
+import jsonlines
+import json
+import ctypes as ct
 
 # define BPF program
 prog = """
 #include <linux/sched.h>
 
 #define ARGSIZE 256
-#define MAXARG 20
 
 BPF_PERF_OUTPUT(events);
 
@@ -20,34 +23,25 @@ struct data_t {
     u32 uid;
     char comm[TASK_COMM_LEN];
     char argv[ARGSIZE];
-    int retval;
 };
 
-static int __submit_arg(struct pt_regs *ctx, void *ptr, struct data_t *data)
+static int submit_arg(struct pt_regs *ctx, void *ptr, struct data_t *data)
 {
     bpf_probe_read_user(data->argv, sizeof(data->argv), ptr);
     events.perf_submit(ctx, data, sizeof(struct data_t));
     return 1;
 }
 
-static int submit_arg(struct pt_regs *ctx, void *ptr, struct data_t *data)
-{
-    const char *argp = NULL;
-    bpf_probe_read_user(&argp, sizeof(argp), ptr);
-    if (argp) {
-        return __submit_arg(ctx, (void *)(argp), data);
-    }
-    return 0;
-}
-
 int syscall__mkdir(struct pt_regs *ctx, 
     const char __user *filename, 
     const char __user *const __user *__argv) {
-    
-    u32 uid = bpf_get_current_uid_gid() & 0xffffffff;
 
     struct data_t data = {};
     struct task_struct *task;
+
+    u32 uid = bpf_get_current_uid_gid() & 0xffffffff;
+    data.uid = uid;
+
     data.pid = bpf_get_current_pid_tgid() >> 32;
 
     task = (struct task_struct *)bpf_get_current_task();
@@ -55,42 +49,62 @@ int syscall__mkdir(struct pt_regs *ctx,
 
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
     
-    __submit_arg(ctx, (void *)filename, &data);
+    submit_arg(ctx, (void *)filename, &data);
 
-    // skip first arg, as we submitted filename
-    #pragma unroll
-    for (int i = 1; i < MAXARG; i++) {
-        if (submit_arg(ctx, (void *)&__argv[i], &data) == 0)
-             goto out;
-    }
-
-    // handle truncated argument list
-    char ellipsis[] = "...";
-    __submit_arg(ctx, (void *)ellipsis, &data);
-
-out:
-    bpf_trace_printk("Hello, World! %s %s\\n", data.argv, data.comm);
+    bpf_trace_printk("Hello, World! %d\\n", data.uid);
     return 0;
 }
 """
 
+TASK_COMM_LEN = 16
+
+def encoder(obj):
+    if isinstance(obj, bytes):
+        return obj.decode('utf-8')
+    return obj
+
+# class BytesEncoder(json.JSONEncoder):
+#     def default(self, obj):
+#         if isinstance(obj, bytes):
+#             return obj.decode('utf-8')
+#         return json.JSONEncoder.default(self, obj)
+
+class Data(ct.Structure):
+    _fields_ = [("pid", ct.c_uint32),
+                ("ppid", ct.c_uint32),
+                ("uid", ct.c_uint32),
+                ("comm", ct.c_char * TASK_COMM_LEN),
+                ("argv", ct.c_char * 256)]
+    
+    def getdict(self):
+        return dict((f, getattr(self, f)) for f, _ in self._fields_)
+
 # load BPF program
+file = "log.json"
 b = BPF(text=prog)
 
 b.attach_kprobe(event=b.get_syscall_fnname("mkdirat"), fn_name="syscall__mkdir")
 b.attach_kprobe(event=b.get_syscall_fnname("mkdir"), fn_name="syscall__mkdir")
 
 # header
-print("%-18s %-16s %-6s %s" % ("TIME(s)", "COMM", "PID", "MESSAGE"))
+print("Running mkdiratsnoop")
 
-# format output
-while 1:
+def print_event(cpu, data, size):
+
+    argv = defaultdict(list)
+    #event = b["events"].event(data)
+    event = ct.cast(data, ct.POINTER(Data)).contents
+    
+    with jsonlines.open(file, "a", dumps=encoder) as writer:   # for writing
+        writer.write(str(event.getdict()))
+    # with open(file, 'a+') as f:
+    #     json.dump(event.getdict(), f, cls=BytesEncoder)
+
+
+# loop with callback to print_event
+b["events"].open_perf_buffer(print_event)
+while True:
     try:
-        (task, pid, cpu, flags, ts, msg) = b.trace_fields()
-    except ValueError:
-        continue
+        b.perf_buffer_poll()
     except KeyboardInterrupt:
         exit()
-
-    
-    printb(b"%-18.9f %-16s %-6d %s" % (ts, task, pid, msg))
