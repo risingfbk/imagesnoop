@@ -19,3 +19,6 @@
 {'pid': 20865, 'ppid': 20864, 'uid': 0, 'comm': b'mkdir', 'argv': b'aaa'}
 {'pid': 15386, 'ppid': 15241, 'uid': 1000, 'comm': b'node', 'argv': b'/tmp/pyright-15386-Fqx5zzJh63qd'}
 {'pid': 20948, 'ppid': 15241, 'uid': 1000, 'comm': b'git', 'argv': b'.git/objects/6a'}
+{'pid': 20948, 'ppid': 15241, 'uid': 1000, 'comm': b'git', 'argv': b'.git/objects/f0'}
+{'pid': 20950, 'ppid': 15241, 'uid': 1000, 'comm': b'git', 'argv': b'.git/objects/40'}
+{'pid': 20950, 'ppid': 15241, 'uid': 1000, 'comm': b'git', 'argv': b'.git/objects/02'}
