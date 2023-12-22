@@ -4,10 +4,41 @@
 
 from bcc import BPF
 from bcc.utils import printb
-from collections import defaultdict
 import jsonlines
-import json
 import ctypes as ct
+import argparse
+
+TASK_COMM_LEN = 16
+
+def encoder(obj):
+    if isinstance(obj, bytes):
+        return obj.decode('utf-8')
+    return 
+
+class Data(ct.Structure):
+    _fields_ = [("pid", ct.c_uint32),
+                ("ppid", ct.c_uint32),
+                ("uid", ct.c_uint32),
+                ("comm", ct.c_char * TASK_COMM_LEN),
+                ("argv", ct.c_char * 256)]
+    
+    def getdict(self):
+        return dict((f, getattr(self, f)) for f, _ in self._fields_)
+
+# arguments
+examples = """examples:
+    ./mkdirsnoop                      # trace all mkdir() and mkdirat syscalls
+    ./mkdirsnoop -P/--ppid 181  # only trace new processes whose parent PID is 181
+"""
+parser = argparse.ArgumentParser(
+    description="Trace mkdir() and mkdirat syscalls",
+    formatter_class=argparse.RawDescriptionHelpFormatter,
+    epilog=examples)
+parser.add_argument("-P", "--ppid",
+    help="trace this parent PID only")
+parser.add_argument("-f", "--file",
+    help="Log file name", default="log.json")
+args = parser.parse_args()
 
 # define BPF program
 prog = """
@@ -47,59 +78,38 @@ int syscall__mkdir(struct pt_regs *ctx,
     task = (struct task_struct *)bpf_get_current_task();
     data.ppid = task->real_parent->tgid;
 
+    PPID_FILTER
+
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
     
     submit_arg(ctx, (void *)filename, &data);
 
-    bpf_trace_printk("Hello, World! %d\\n", data.uid);
     return 0;
 }
 """
 
-TASK_COMM_LEN = 16
-
-def encoder(obj):
-    if isinstance(obj, bytes):
-        return obj.decode('utf-8')
-    return obj
-
-# class BytesEncoder(json.JSONEncoder):
-#     def default(self, obj):
-#         if isinstance(obj, bytes):
-#             return obj.decode('utf-8')
-#         return json.JSONEncoder.default(self, obj)
-
-class Data(ct.Structure):
-    _fields_ = [("pid", ct.c_uint32),
-                ("ppid", ct.c_uint32),
-                ("uid", ct.c_uint32),
-                ("comm", ct.c_char * TASK_COMM_LEN),
-                ("argv", ct.c_char * 256)]
-    
-    def getdict(self):
-        return dict((f, getattr(self, f)) for f, _ in self._fields_)
+if args.ppid:
+    prog = prog.replace('PPID_FILTER',
+        'if (data.ppid != %s) { return 0; }' % args.ppid)
+else:
+    prog = prog.replace('PPID_FILTER', '')
 
 # load BPF program
-file = "log.json"
 b = BPF(text=prog)
 
 b.attach_kprobe(event=b.get_syscall_fnname("mkdirat"), fn_name="syscall__mkdir")
 b.attach_kprobe(event=b.get_syscall_fnname("mkdir"), fn_name="syscall__mkdir")
 
 # header
-print("Running mkdiratsnoop")
+#print("Running mkdiratsnoop")
 
 def print_event(cpu, data, size):
 
-    argv = defaultdict(list)
-    #event = b["events"].event(data)
     event = ct.cast(data, ct.POINTER(Data)).contents
-    
-    with jsonlines.open(file, "a", dumps=encoder) as writer:   # for writing
-        writer.write(str(event.getdict()))
-    # with open(file, 'a+') as f:
-    #     json.dump(event.getdict(), f, cls=BytesEncoder)
 
+    #save log as jsonlines
+    with jsonlines.open(args.file, "a", dumps= lambda obj: obj.decode('utf-8') if isinstance(obj, bytes) else obj) as writer:  
+        writer.write(str(event.getdict()))
 
 # loop with callback to print_event
 b["events"].open_perf_buffer(print_event)
