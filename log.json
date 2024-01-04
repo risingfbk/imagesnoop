@@ -1,7 +1,0 @@
-{'pid': 23588, 'ppid': 23025, 'uid': 1000, 'comm': b'mkdir', 'argv': b'bbb'}
-{'pid': 23613, 'ppid': 23025, 'uid': 1000, 'comm': b'mkdir', 'argv': b'bbb'}
-{'pid': 23620, 'ppid': 23025, 'uid': 1000, 'comm': b'mkdir', 'argv': b'aaa'}
-{'pid': 23640, 'ppid': 23025, 'uid': 1000, 'comm': b'mkdir', 'argv': b'aaa'}
-{'pid': 23644, 'ppid': 23025, 'uid': 1000, 'comm': b'mkdir', 'argv': b'bbb'}
-{'pid': 23648, 'ppid': 23025, 'uid': 1000, 'comm': b'mkdir', 'argv': b'bbb'}
-{'pid': 23652, 'ppid': 23025, 'uid': 1000, 'comm': b'mkdir', 'argv': b'aaa'}
