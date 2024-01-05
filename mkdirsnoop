@@ -29,8 +29,9 @@ class Data(ct.Structure):
 
 # arguments
 examples = """examples:
-    ./mkdirsnoop                      # trace all mkdir() and mkdirat syscalls
-    ./mkdirsnoop -P/--ppid 181  # only trace new processes whose parent PID is 181
+    ./mkdirsnoop               # trace all mkdir() and mkdirat() syscalls
+    ./mkdirsnoop -P/--pid 181  # only trace new processes which PID is 181
+    ./mkdirsnoop -f filename   # change where the log will be save 
 """
 parser = argparse.ArgumentParser(
     description="Trace mkdir() and mkdirat syscalls",
@@ -128,7 +129,7 @@ int syscall__mkdirat(struct pt_regs *ctx,
 
 if args.pid:
     prog = prog.replace('PID_FILTER',
-        'if (data.pid != %s) { return 0; }' % args.ppid)
+        'if (data.pid != %s) { return 0; }' % args.pid)
 else:
     prog = prog.replace('PID_FILTER', '')
 
