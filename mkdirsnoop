@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 #
 # This is a Hello World example that formats output as fields.
 
@@ -61,26 +61,16 @@ struct data_t {
 };
 
 
-static int __submit_arg(struct pt_regs *ctx, void *ptr, struct data_t *data)
+static int submit_arg(struct pt_regs *ctx, void *ptr, struct data_t *data)
 {
     bpf_probe_read_user(data->argv, sizeof(data->argv), ptr);
     events.perf_submit(ctx, data, sizeof(struct data_t));
     return 1;
 }
 
-static int submit_arg(struct pt_regs *ctx, void *ptr, struct data_t *data)
-{
-    const char *argp = NULL;
-    bpf_probe_read_user(&argp, sizeof(argp), ptr);
-    if (argp) {
-        return __submit_arg(ctx, (void *)(argp), data);
-    }
-    return 0;
-}
-
 int syscall__mkdir(struct pt_regs *ctx, 
     const char __user *filename, 
-    const char __user *const __user *__argv) {
+    const int __user *mode) {
 
     struct data_t data = {};
     struct task_struct *task;
@@ -99,19 +89,35 @@ int syscall__mkdir(struct pt_regs *ctx,
 
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
     
-    __submit_arg(ctx, (void *)filename, &data);
+    submit_arg(ctx, (void *)filename, &data);
 
-    // skip first arg, as we submitted filename
-    #pragma unroll
-    for (int i = 1; i < MAXARG; i++) {
-        if (submit_arg(ctx, (void *)&__argv[i], &data) == 0)
-             goto out;
-    }
+    return 0;
+}
 
-    // handle truncated argument list
-    char ellipsis[] = "...";
-    __submit_arg(ctx, (void *)ellipsis, &data);
-out:
+int syscall__mkdirat(struct pt_regs *ctx, 
+    const int __user *dirfd,
+    const char __user *filename, 
+    const int __user *mode) {
+
+    struct data_t data = {};
+    struct task_struct *task;
+
+    u32 uid = bpf_get_current_uid_gid() & 0xffffffff;
+    data.uid = uid;
+
+    data.pid = bpf_get_current_pid_tgid() >> 32;
+
+    task = (struct task_struct *)bpf_get_current_task();
+    data.ppid = task->real_parent->tgid;
+
+    data.ts_us = bpf_ktime_get_ns() / 1000;
+
+    PPID_FILTER
+
+    bpf_get_current_comm(&data.comm, sizeof(data.comm));
+    
+    submit_arg(ctx, (void *)filename, &data);
+
     return 0;
 }
 """
@@ -125,7 +131,7 @@ else:
 # load BPF program
 b = BPF(text=prog)
 
-b.attach_kprobe(event=b.get_syscall_fnname("mkdirat"), fn_name="syscall__mkdir")
+b.attach_kprobe(event=b.get_syscall_fnname("mkdirat"), fn_name="syscall__mkdirat")
 b.attach_kprobe(event=b.get_syscall_fnname("mkdir"), fn_name="syscall__mkdir")
 
 # header
@@ -142,6 +148,7 @@ def print_event(cpu, data, size):
         for i in tmp_dict.keys():
             if type(tmp_dict[i]) == bytes:
                tmp_dict[i] = tmp_dict[i].decode('utf-8')
+        print(tmp_dict)
         writer.write(tmp_dict)
 
 # loop with callback to print_event
