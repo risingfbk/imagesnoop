@@ -19,7 +19,7 @@ def encoder(obj):
 class Data(ct.Structure):
     _fields_ = [("ts_us", ct.c_uint64),
                 ("pid", ct.c_uint32),
-                ("ppid", ct.c_uint32),
+                ("tid", ct.c_uint32),
                 ("uid", ct.c_uint32),
                 ("comm", ct.c_char * TASK_COMM_LEN),
                 ("argv", ct.c_char * 256)]
@@ -36,8 +36,8 @@ parser = argparse.ArgumentParser(
     description="Trace mkdir() and mkdirat syscalls",
     formatter_class=argparse.RawDescriptionHelpFormatter,
     epilog=examples)
-parser.add_argument("-P", "--ppid",
-    help="trace this parent PID only")
+parser.add_argument("-P", "--pid",
+    help="trace this PID only")
 parser.add_argument("-f", "--file",
     help="Log file name", default="log.json")
 args = parser.parse_args()
@@ -54,7 +54,7 @@ BPF_PERF_OUTPUT(events);
 struct data_t {
     u64 ts_us;
     u32 pid;  // PID as in the userspace term (i.e. task->tgid in kernel)
-    u32 ppid; // Parent PID as in the userspace term (i.e task->real_parent->tgid in kernel)
+    u32 tid; // Parent PID as in the userspace term (i.e task->real_parent->tgid in kernel)
     u32 uid;
     char comm[TASK_COMM_LEN];
     char argv[ARGSIZE];
@@ -78,14 +78,16 @@ int syscall__mkdir(struct pt_regs *ctx,
     u32 uid = bpf_get_current_uid_gid() & 0xffffffff;
     data.uid = uid;
 
-    data.pid = bpf_get_current_pid_tgid() >> 32;
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    data.pid = pid_tgid >> 32;
+    data.tid = pid_tgid;
 
     task = (struct task_struct *)bpf_get_current_task();
-    data.ppid = task->real_parent->tgid;
+    //data.ppid = task->real_parent->tgid;
 
     data.ts_us = bpf_ktime_get_ns() / 1000;
 
-    PPID_FILTER
+    PID_FILTER
 
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
     
@@ -105,14 +107,16 @@ int syscall__mkdirat(struct pt_regs *ctx,
     u32 uid = bpf_get_current_uid_gid() & 0xffffffff;
     data.uid = uid;
 
-    data.pid = bpf_get_current_pid_tgid() >> 32;
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    data.pid = pid_tgid >> 32;
+    data.tid = pid_tgid;
 
     task = (struct task_struct *)bpf_get_current_task();
-    data.ppid = task->real_parent->tgid;
+    //data.ppid = task->real_parent->tgid;
 
     data.ts_us = bpf_ktime_get_ns() / 1000;
 
-    PPID_FILTER
+    PID_FILTER
 
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
     
@@ -122,11 +126,11 @@ int syscall__mkdirat(struct pt_regs *ctx,
 }
 """
 
-if args.ppid:
-    prog = prog.replace('PPID_FILTER',
-        'if (data.ppid != %s) { return 0; }' % args.ppid)
+if args.pid:
+    prog = prog.replace('PID_FILTER',
+        'if (data.pid != %s) { return 0; }' % args.ppid)
 else:
-    prog = prog.replace('PPID_FILTER', '')
+    prog = prog.replace('PID_FILTER', '')
 
 # load BPF program
 b = BPF(text=prog)
@@ -148,7 +152,6 @@ def print_event(cpu, data, size):
         for i in tmp_dict.keys():
             if type(tmp_dict[i]) == bytes:
                tmp_dict[i] = tmp_dict[i].decode('utf-8')
-        print(tmp_dict)
         writer.write(tmp_dict)
 
 # loop with callback to print_event
