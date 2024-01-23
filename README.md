@@ -18,6 +18,7 @@ is available [here](https://github.com/risingfbk/magi).
     - [Data structure](#data-structure-1)
   - [License](#license)
   - [Contributing](#contributing)
+  - [Authors](#authors)
 
 ## Installation
 
@@ -135,3 +136,8 @@ licensed under the GPL License 2.0. See the [LICENSE](LICENSE) file for more det
 ## Contributing
 
 All contributions are welcome. If you have any doubts or questions feel free to open an issue or contact the maintainers.
+
+## Authors
+
+- [Luis Augusto Dias Knob](https://github.com/luisdknob), Fondazione Bruno Kessler - `l.diasknob@fbk.eu`
+- [Matteo Franzil](https://github.com/mfranzil), Fondazione Bruno Kessler - `mfranzil@fbk.eu`
